@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <title>Disney's Hercules</title>
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var isMobile = p.get("touch") === "1" || (p.get("touch") !== "0" && (
+        (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+        (window.matchMedia && window.matchMedia("(display-mode: fullscreen)").matches) ||
+        ("ontouchstart" in window) ||
+        (navigator.maxTouchPoints > 0)
+      ));
+      if (isMobile) {
+        document.documentElement.classList.add("mobile");
+      }
+    })();
+  </script>
+  <style>
+    @media (pointer: coarse), (display-mode: standalone), (display-mode: fullscreen) {
+      html:not(.desktop) main { display: none !important; }
+      html:not(.desktop), html:not(.desktop) body { height: 100%; margin: 0; overflow: hidden; background: #000; overscroll-behavior: none; }
+      html:not(.desktop) body { position: fixed; inset: 0; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+    }
+    :root {
+      color-scheme: dark;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #090e17;
+      color: #e7edf7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(ellipse at 50% 0%, #152238 0%, #090e17 65%, #05080f 100%);
+      color: #e7edf7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    main {
+      width: min(1200px, calc(100% - 24px));
+      margin: 0 auto;
+      padding: 10px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .top-bar {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 2px 4px;
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .title {
+      margin: 0;
+      font-size: clamp(18px, 2vw, 24px);
+      font-weight: 800;
+      letter-spacing: -.02em;
+      color: #f7e09e;
+      text-shadow: 0 2px 10px rgba(244, 194, 79, .25);
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #8fb0de;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(30, 50, 80, .5);
+      border: 1px solid rgba(140, 180, 240, .2);
+    }
+    .status {
+      border-radius: 20px;
+      padding: 5px 14px;
+      background: #131d2e;
+      border: 1px solid #23334d;
+      color: #b7cbe7;
+      font-size: 12px;
+      line-height: 1.4;
+      text-align: center;
+      max-width: 460px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status.error { background: #351720; border-color: #632938; color: #ffd2da; }
+    .status.success { background: #122a1f; border-color: #24583e; color: #c2f0d7; }
+    .content-row {
+      width: 100%;
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      justify-content: center;
+      gap: 14px;
+    }
+    .game-card {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #253347;
+      border-radius: 14px;
+      background: rgba(13, 20, 32, .88);
+      padding: 10px;
+      box-shadow: 0 16px 50px rgba(0, 0, 0, .45);
+      min-width: 0;
+    }
+    .screen-wrap {
+      position: relative;
+      background: #04060a;
+      border: 1px solid #28374d;
+      border-radius: 8px;
+      padding: 4px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    canvas {
+      display: block;
+      height: min(calc(100vh - 126px), 640px);
+      max-height: 640px;
+      aspect-ratio: 4 / 3;
+      max-width: 100%;
+      background: #000;
+      border-radius: 4px;
+      outline: none;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, .7);
+    }
+    canvas.pixelated { image-rendering: pixelated; }
+    .screen-wrap:fullscreen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+    }
+    .screen-wrap:fullscreen canvas {
+      width: min(100vw, calc(100vh * 4 / 3));
+      max-width: none;
+      height: auto;
+      border-radius: 0;
+    }
+    .display-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      align-items: center;
+      justify-content: center;
+      margin-top: 8px;
+      font-size: 12.5px;
+      color: #b7c4d8;
+      width: 100%;
+    }
+    .display-bar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #9bb0cb;
+      user-select: none;
+    }
+    input[type=range] { vertical-align: middle; width: 80px; accent-color: #d9a441; }
+    .btn {
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid #486386;
+      background: #172c48;
+      color: #fff;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all .15s ease;
+    }
+    .btn:hover { background: #223f66; border-color: #6286b6; }
+    .btn kbd { background: rgba(0,0,0,.35); border-color: rgba(255,255,255,.25); font-size: 10px; margin-left: 2px; }
+    .perf { color: #6e839e; font-size: 11px; flex-basis: 100%; text-align: center; font-variant-numeric: tabular-nums; }
+    pre.err {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      background: #2a1520;
+      color: #ffd2da;
+      border-radius: 8px;
+      padding: 10px;
+      max-height: 240px;
+      overflow: auto;
+      width: 100%;
+      margin: 8px 0 0;
+    }
+    .access-error {
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-top: 10px;
+      background: #381f29;
+      color: #ffd2da;
+      font-size: 13px;
+      line-height: 1.5;
+      width: 100%;
+    }
+    .access-error code {
+      color: #cbe0ff;
+      background: #111c2b;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    .ap-badge {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      pointer-events: none;
+      font: 700 12px ui-monospace, monospace;
+      letter-spacing: .08em;
+      padding: 4px 8px;
+      border-radius: 5px;
+      background: rgba(10, 40, 80, .85);
+      color: #bfe0ff;
+      border: 1px solid #4f86c6;
+    }
+    .ap-badge .cheat { display: block; color: #ff6b6b; font-size: 11px; margin-top: 2px; }
+    .ap-badge.cheating { border-color: #ff6b6b; }
+    .controls-card {
+      width: 300px;
+      flex: 0 0 300px;
+      border: 1px solid #233044;
+      border-radius: 14px;
+      background: rgba(12, 18, 28, .88);
+      padding: 14px 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .3);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .controls-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      border-bottom: 1px solid #1f2c3f;
+      padding-bottom: 8px;
+      margin-bottom: 8px;
+    }
+    .controls-header h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: #f0c968;
+    }
+    .controls-sub {
+      color: #8ea3c2;
+      font-size: 11px;
+    }
+    .controls-sections {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .controls-col h3 {
+      margin: 0 0 4px;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: #9bb8e8;
+    }
+    .keys {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 3px 8px;
+      font-size: 11.5px;
+      color: #c8d4e6;
+      margin: 0;
+    }
+    .keys dt {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .keys dd {
+      margin: 0;
+      text-align: left;
+      color: #b7c7dc;
+      display: flex;
+      align-items: center;
+      white-space: nowrap;
+    }
+    kbd {
+      font: 600 10.5px ui-monospace, monospace;
+      border-radius: 4px;
+      padding: 1px 5px;
+      border: 1px solid #42546c;
+      background: #0d1725;
+      color: #e7edf7;
+      white-space: nowrap;
+      box-shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+    .keys kbd.k-mv { color: #8fd0ff; border-color: #2f6f9e; background: #0b2033; }
+    .keys kbd.k-jp { color: #8ff0a4; border-color: #2e7a45; background: #0c2416; }
+    .keys kbd.k-at { color: #ffb08a; border-color: #9a4d2c; background: #2a140b; }
+    .keys kbd.k-gf { color: #ffe27a; border-color: #8c7424; background: #26200a; }
+    .keys kbd.k-sy { color: #d2c4ff; border-color: #5e4f9a; background: #17122b; }
+    .controls-footer {
+      border-top: 1px solid #1f2c3f;
+      margin-top: 8px;
+      padding-top: 8px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #8ea3c2;
+    }
+    .controls-footer p { margin: 2px 0; }
+    .controls-footer strong { color: #cde0f7; }
+    .controls-footer .opt-note { color: #738aa6; font-size: 10px; margin-top: 4px; }
+    @media (max-width: 960px) {
+      .content-row { flex-direction: column; align-items: center; }
+      .controls-card { width: 100%; max-width: 800px; }
+      .controls-sections { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+      canvas { height: auto; width: 100%; max-width: 800px; }
+    }
+    @media (max-width: 640px) {
+      .controls-sections { grid-template-columns: 1fr; gap: 10px; }
+      .top-bar { flex-wrap: wrap; }
+      .status { max-width: 100%; order: 3; width: 100%; }
+    }
+    /* ---- mobile / touch layout ---- */
+    .touch-pad[hidden], .rotate { display: none; }
+    html.mobile, html.mobile body { height: 100%; margin: 0; overflow: hidden; background: #000; overscroll-behavior: none; }
+    html.mobile body { position: fixed; inset: 0; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+    html.mobile main { display: none !important; }
+    html.mobile .screen-wrap {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; gap: 0;
+      padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); border: 0; border-radius: 0; touch-action: none;
+      background: radial-gradient(ellipse at 50% 120%, #2a1206 0, #0a0603 45%, #000 80%);
+    }
+    html.mobile canvas {
+      flex: none; margin: 0; border-radius: 0; touch-action: none;
+      width: min(calc(100dvh * 4 / 3), calc(100vw - 2 * var(--pad-min) - env(safe-area-inset-left) - env(safe-area-inset-right)));
+      height: auto; max-width: none; box-shadow: none;
+    }
+    html.mobile { --pad-min: 112px; }
+    @media (min-height: 520px) and (min-aspect-ratio: 1.35) and (max-aspect-ratio: 1.82) {
+      html.mobile { --pad-min: 138px; }
+    }
+    html.mobile .touch-pad { position: relative; flex: 1 1 0; align-self: stretch; min-width: var(--pad-min); touch-action: none; transition: opacity 0.35s ease; }
+    html.mobile .touch-pad.touch-dimmed { opacity: 1; }
+    html.mobile .touch-left { background: linear-gradient(90deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) calc(100% - 7px), #6b4a14 calc(100% - 7px), #d9a441 calc(100% - 5px), #6b4a14 calc(100% - 3px), rgba(0,0,0,0) calc(100% - 3px)); }
+    html.mobile .touch-right { background: linear-gradient(270deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) calc(100% - 7px), #6b4a14 calc(100% - 7px), #d9a441 calc(100% - 5px), #6b4a14 calc(100% - 3px), rgba(0,0,0,0) calc(100% - 3px)); }
+    html.mobile, html.mobile * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
+    html.mobile .tbtn svg, html.mobile .tbtn svg * { pointer-events: none; }
+    .tbtn { position: absolute; pointer-events: none; transition: transform 60ms, filter 60ms; filter: drop-shadow(0 2px 3px rgba(0,0,0,.7)); }
+    .tbtn svg { width: 100%; height: 100%; display: block; }
+    .tbtn.on { transform: scale(.92); filter: brightness(1.35) drop-shadow(0 0 10px rgba(255, 200, 80, .85)); }
+    html.mobile .m-status { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); margin: 0; max-width: 60vw; z-index: 5; font-size: 12px; padding: 6px 10px; opacity: .92; pointer-events: none; }
+    html.mobile pre.err { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); width: 70vw; max-height: 70vh; z-index: 6; }
+    html.mobile .m-perf { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); z-index: 5; font: 10px ui-monospace, monospace; color: #9fb0c8; background: rgba(0,0,0,.6); padding: 2px 6px; border-radius: 4px; pointer-events: none; max-width: 70vw; }
+    html.mobile .ap-badge { top: 8px; left: auto; right: auto; }
+    .toast {
+      position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 7; max-width: min(80%, 560px); padding: 8px 14px; border-radius: 8px;
+      background: rgba(12, 8, 4, .88); color: #f7dc8e; border: 1px solid #b8862e; font: 600 14px/1.35 system-ui, sans-serif; text-align: center; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.6);
+    }
+    .toast[hidden] { display: none; }
+    html.mobile .toast { bottom: 14px; font-size: 13px; }
+    html.mobile.pad-mode { --pad-min: 0px; }
+    html.mobile.pad-mode .touch-pad { visibility: hidden; }
+    @media (orientation: portrait) {
+      html.mobile .rotate { display: flex; position: fixed; inset: 0; z-index: 50; background: #000; color: #f7dc8e; flex-direction: column; align-items: center; justify-content: center; gap: 18px; font: 600 18px Georgia, serif; text-align: center; }
+      html.mobile .rotate svg { width: 96px; height: 96px; animation: rot 1.8s ease-in-out infinite; }
+      @keyframes rot { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="top-bar">
+      <div class="brand">
+        <h1 class="title">Disney's Hercules</h1>
+        <span class="badge">Action Game</span>
+      </div>
+      <div id="status" class="status" role="status">Loading game data from DATA/…</div>
+    </header>
+
+    <div class="content-row">
+      <section class="game-card">
+        <div class="screen-wrap">
+          <div id="touch-left" class="touch-pad" hidden></div>
+          <canvas id="screen" width="320" height="240" tabindex="0" aria-label="Game screen"></canvas>
+          <div id="touch-right" class="touch-pad" hidden></div>
+          <div id="ap-badge" class="ap-badge" hidden></div>
+        </div>
+        <div class="display-bar">
+          <label>🎵 Music <input id="music-volume" type="range" min="0" max="100" value="70"></label>
+          <label>🔊 Sound <input id="sfx-volume" type="range" min="0" max="100" value="100"></label>
+          <button id="fullscreen" type="button" class="btn">⛶ Fullscreen <kbd>Alt+Enter</kbd></button>
+          <span id="perf" class="perf"></span>
+        </div>
+        <pre id="error" class="err" hidden></pre>
+        <div id="access-help" class="access-error" hidden>
+          <strong>The browser blocked reading the DATA folder.</strong>
+          Start the game with <code>Hercules.bat</code> next to index.html (a page opened from disk cannot read neighbouring files).
+        </div>
+        <div id="music-status" hidden></div>
+      </section>
+
+      <aside class="controls-card" aria-label="Game Controls">
+        <div class="controls-header">
+          <h2>Game Controls</h2>
+          <span class="controls-sub">Keyboard &amp; Gamepad</span>
+        </div>
+        <div class="controls-sections">
+          <div class="controls-col">
+            <h3>Movement &amp; Aim</h3>
+            <dl class="keys">
+              <dt><kbd class="k-mv">← →</kbd></dt><dd>Run</dd>
+              <dt><kbd class="k-mv">↑</kbd></dt><dd>Look Up / Aim</dd>
+              <dt><kbd class="k-mv">↓</kbd></dt><dd>Crouch / Duck</dd>
+              <dt><kbd class="k-mv">↓</kbd> + <kbd class="k-jp">Z</kbd></dt><dd>Ground Pound</dd>
+            </dl>
+          </div>
+          <div class="controls-col">
+            <h3>Combat &amp; Actions</h3>
+            <dl class="keys">
+              <dt><kbd class="k-jp">Z</kbd></dt><dd>Jump</dd>
+              <dt><kbd class="k-at">X</kbd></dt><dd>Sword Slash</dd>
+              <dt><kbd class="k-at">C</kbd></dt><dd>Punch</dd>
+              <dt><kbd class="k-at">D</kbd></dt><dd>Power Punch</dd>
+              <dt><kbd class="k-gf">S</kbd></dt><dd>Special Weapon</dd>
+            </dl>
+          </div>
+          <div class="controls-col">
+            <h3>System &amp; Menus</h3>
+            <dl class="keys">
+              <dt><kbd class="k-sy">Enter</kbd> / <kbd class="k-sy">Space</kbd></dt><dd>Select / Action</dd>
+              <dt><kbd class="k-sy">Esc</kbd></dt><dd>Pause Menu</dd>
+              <dt><kbd class="k-sy">F1</kbd> / <kbd class="k-sy">H</kbd></dt><dd>In-Game Help</dd>
+              <dt><kbd class="k-sy">F2</kbd> / <kbd class="k-sy">O</kbd></dt><dd>Options Menu</dd>
+              <dt><kbd class="k-sy">F3</kbd> / <kbd class="k-sy">R</kbd></dt><dd>Restart Level</dd>
+            </dl>
+          </div>
+        </div>
+        <div class="controls-footer">
+          <p><strong>🎮 Gamepad:</strong> <kbd>A</kbd> Jump · <kbd>X</kbd> Sword · <kbd>B</kbd> Punch · <kbd>Y</kbd> Power · <kbd>LB</kbd>/<kbd>RB</kbd> Weapon · <kbd>Start</kbd> Pause</p>
+          <p class="opt-note">Remap buttons in <strong>OPTIONS › CONTROLLER</strong>.</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    if (document.documentElement.classList.contains("mobile")) {
+      var sw = document.querySelector(".screen-wrap");
+      if (sw && sw.parentElement !== document.body) document.body.appendChild(sw);
+    }
+  </script>
+  <div class="rotate" aria-hidden="true">
+    <svg viewBox="0 0 64 64"><rect x="20" y="6" width="24" height="44" rx="4" fill="none" stroke="#f4c24f" stroke-width="3"/><circle cx="32" cy="44" r="2" fill="#f4c24f"/></svg>
+    Turn your phone sideways
+  </div>
+  <script src="hercules.js"></script>
+</body>
+</html>
