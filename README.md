@@ -8,6 +8,29 @@ Runs directly in modern web browsers without WebAssembly, Emscripten, or server-
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" valign="bottom">
+      <img src="https://github.com/user-attachments/assets/f0fe1a83-bc80-440f-9be6-946129abca14" width="300" alt="Mobile Phone (Samsung Galaxy S23)" />
+    </td>
+    <td align="center" valign="bottom">
+      <img src="https://github.com/user-attachments/assets/35570cc5-70a6-42e5-8d62-69860567a89a" width="300" alt="Tablet (Samsung Galaxy Tab)" />
+    </td>
+    <td align="center" valign="bottom">
+      <img src="https://github.com/user-attachments/assets/88c3fa8c-76b9-4d42-8f12-d1f4681f1e51" width="300" alt="Desktop (Google Chrome)" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Mobile Phone</b><br>Samsung Galaxy S23</td>
+    <td align="center"><b>Tablet</b><br>Samsung Galaxy Tab</td>
+    <td align="center"><b>Desktop</b><br>Google Chrome</td>
+  </tr>
+</table>
+
+---
+
 ## Background and Motivation
 
 This project was inspired by [hercules-native](https://github.com/yelnady/hercules-native), which reverse-engineered the original 1997 PC executable and created a native C11/SDL2 port for modern Apple Silicon Macs.
