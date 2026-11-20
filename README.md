@@ -153,16 +153,23 @@ Then open `http://localhost:8080` in your browser.
 | Restart Level | `F3` or `R` |
 | Fullscreen Toggle | `Alt + Enter` |
 
-Bindings can be customized in Options › Controller.
+Bindings can be customized in Options › Controls.
 
 ### Gamepad (Xbox, PlayStation, Generic)
-- D-Pad / Left Stick: Move and aim
+- D-Pad / Left Stick: Move and aim (hold the sword with a Gift weapon and push the stick to sweep it)
 - A / Cross: Jump / Confirm in menus
-- X / Square: Sword
+- RT / R2: Sword
 - B / Circle: Punch
-- Y / Triangle: Power Punch
-- LB / RB (L1 / R1): Cycle Gift Weapons
+- X / Square: Power Punch (hold to charge, release to strike)
+- RB / R1: Cycle Gift Weapons
 - Start: Pause
+
+Buttons can be remapped in Options › Controls. On phones and tablets that screen shows only the controller; on a desktop it shows the keyboard, plus the controller while one is connected.
+
+### Controller Turbo (auto-fire)
+Many controllers have a Turbo function (GameSir: the **M** button, 8BitDo and others: **Turbo** / **Star**). With Turbo on, a held button is sent as a fast stream of presses, so moves that rely on holding a button break: the Power Punch strikes at once without charging, and a Gift weapon fired with the sword cannot be swept and always points straight ahead.
+
+The game detects Turbo on a button, keeps the button held anyway and shows a hint. It is still best to turn Turbo off on the controller. On a GameSir Nova Lite: hold **M** and press the button (for example **RT** or **B**), then release both. Repeat if the first press only switched the Turbo mode.
 
 ### Touch Controls
 On touchscreen devices, on-screen virtual controls activate automatically with responsive directional input and action buttons.

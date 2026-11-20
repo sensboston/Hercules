@@ -3464,6 +3464,50 @@
     "righttrigger"
   ];
   var SDL_TO_STANDARD = [0, 1, 2, 3, 8, 16, 9, 10, 11, 4, 5, 12, 13, 14, 15, 6, 7];
+  /* Controller "turbo" (auto-fire) detection. With turbo on, a held button reaches the page as a steady 15-25 Hz
+   * press/release train, so hold-based moves (power punch charge, the lightning arc) restart every few frames.
+   * A button that shows 8 short cycles in a row (on < 70 ms, off < 50 ms) is marked as turbo: its short gaps are
+   * bridged so it reads as held, and the page is told once so it can explain how to turn turbo off. A continuous
+   * hold longer than 400 ms (impossible with turbo) clears the mark. Only face buttons, shoulders and triggers. */
+  var TURBO_NAMES = ["A", "B", "X", "Y", "LB", "RB", "LT", "RT"];
+  var TURBO_GAP = 80;
+  var turboTrack = /* @__PURE__ */ new Map();
+  function padPressed(g, std) {
+    const b = g?.buttons?.[std];
+    const raw = !!(b && (b.pressed || b.value > 0.5));
+    if (std > 7 || !g) return raw;
+    const key = g.index + ":" + std, now = performance.now();
+    let t = turboTrack.get(key);
+    if (!t) turboTrack.set(key, t = { on: false, onT: -1e9, offT: -1e9, streak: 0, turbo: false, told: false });
+    if (raw !== t.on) {
+      if (raw) {
+        const gap = now - t.offT, hold = t.offT - t.onT;
+        if (gap < 50 && hold < 70) {
+          if (++t.streak >= 8 && !t.turbo) {
+            t.turbo = true;
+            if (!t.told) {
+              t.told = true;
+              try {
+                globalThis.dispatchEvent?.(new CustomEvent("hercules-turbo", { detail: TURBO_NAMES[std] }));
+              } catch {
+              }
+            }
+          }
+        } else {
+          t.streak = 0;
+        }
+        t.onT = now;
+      } else {
+        if (now - t.onT > 400) {
+          t.turbo = false;
+          t.streak = 0;
+        }
+        t.offT = now;
+      }
+      t.on = raw;
+    }
+    return raw || t.turbo && now - t.offT < TURBO_GAP;
+  }
   function gamepads() {
     try {
       return Array.from(globalThis.navigator?.getGamepads?.() ?? []).filter(Boolean);
@@ -3482,34 +3526,68 @@
     return g ? { index: g.index } : null;
   }
   function padObject(pad2) {
-    return pad2 ? gamepads().find((g) => g.index === pad2.index) ?? null : null;
+    if (pad2 && (pad2.axes || pad2.buttons)) return pad2;
+    const list = gamepads();
+    if (list.length === 0) return null;
+    if (pad2 && pad2.index !== void 0) {
+      const found = list.find((g) => g.index === pad2.index);
+      if (found) return found;
+    }
+    return list[0];
   }
   function SDL_GameControllerGetButton(pad2, b) {
     if (inputBlocked) return 0;
     const g = padObject(pad2);
     if (!g || b < 0 || b >= SDL_TO_STANDARD.length) return 0;
-    const btn = g.buttons[SDL_TO_STANDARD[b]];
-    let pressed = btn && (btn.pressed || btn.value > 0.5);
-    if (!pressed && b === 9 && g.buttons[6]) pressed = g.buttons[6].pressed || g.buttons[6].value > 0.5;
-    if (!pressed && b === 10 && g.buttons[7]) pressed = g.buttons[7].pressed || g.buttons[7].value > 0.5;
-    return pressed ? 1 : 0;
+    const std = SDL_TO_STANDARD[b];
+    if (padPressed(g, std)) return 1;
+    if (g.axes && g.axes.length > 4) {
+      if (b === 11 && (g.axes[5] < -0.5 || g.axes[7] < -0.5)) return 1;
+      if (b === 12 && (g.axes[5] > 0.5 || g.axes[7] > 0.5)) return 1;
+      if (b === 13 && (g.axes[4] < -0.5 || g.axes[6] < -0.5)) return 1;
+      if (b === 14 && (g.axes[4] > 0.5 || g.axes[6] > 0.5)) return 1;
+    }
+    return 0;
   }
   function SDL_GameControllerGetAxis(pad2, a) {
     if (inputBlocked) return 0;
     const g = padObject(pad2);
     if (!g || !g.axes || a < 0 || a >= g.axes.length) return 0;
-    const rawX = g.axes[0] ?? 0;
-    const rawY = g.axes[1] ?? 0;
-    const mag = Math.hypot(rawX, rawY);
-    if (mag < 0.15) return 0;
-    if (a === 0) {
-      if (Math.abs(rawY) > 0.75 && Math.abs(rawX) < 0.35) return 0;
-      return Math.max(-32768, Math.min(32767, Math.round(rawX * 32767)));
-    } else if (a === 1) {
-      if (Math.abs(rawX) > 0.32 && Math.abs(rawY) < 0.62) return 0;
-      return Math.max(-32768, Math.min(32767, Math.round(rawY * 32767)));
+    if (a === 0 || a === 1) {
+      let rawX = g.axes[0] ?? 0;
+      let rawY = g.axes[1] ?? 0;
+      if (Math.hypot(rawX, rawY) < 0.15) return 0;
+      if (rawY < -0.35 && Math.abs(rawX) < Math.abs(rawY) * 0.65) {
+        rawX = 0;
+      } else if (Math.abs(rawY) > 0.85 && Math.abs(rawX) < 0.25) {
+        rawX = 0;
+      }
+      if (a === 0) {
+        return Math.max(-32768, Math.min(32767, Math.round(rawX * 32767)));
+      } else {
+        if (rawY > 0 && Math.abs(rawX) > 0.45 && rawY < 0.45) return 0;
+        return Math.max(-32768, Math.min(32767, Math.round(rawY * 32767)));
+      }
     }
-    return Math.max(-32768, Math.min(32767, Math.round(g.axes[a] * 32767)));
+    if (a === 2 || a === 3) {
+      let rawX = g.axes[2] ?? 0;
+      let rawY = g.axes[3] ?? 0;
+      if (Math.hypot(rawX, rawY) < 0.15) return 0;
+      if (rawY < -0.35 && Math.abs(rawX) < Math.abs(rawY) * 0.65) {
+        rawX = 0;
+      } else if (Math.abs(rawY) > 0.85 && Math.abs(rawX) < 0.25) {
+        rawX = 0;
+      }
+      if (a === 2) {
+        return Math.max(-32768, Math.min(32767, Math.round(rawX * 32767)));
+      } else {
+        if (rawY > 0 && Math.abs(rawX) > 0.45 && rawY < 0.45) return 0;
+        return Math.max(-32768, Math.min(32767, Math.round(rawY * 32767)));
+      }
+    }
+    const raw = g.axes[a] ?? 0;
+    if (Math.abs(raw) < 0.15) return 0;
+    return Math.max(-32768, Math.min(32767, Math.round(raw * 32767)));
   }
   function SDL_GameControllerGetStringForButton(b) {
     return BUTTON_NAMES[b] ?? null;
@@ -3545,10 +3623,7 @@
     const downs = [];
     for (const g of gamepads()) {
       const prev = lastButtons.get(g.index) ?? [];
-      const now = SDL_TO_STANDARD.map((std) => {
-        const b = g.buttons[std];
-        return !!(b && (b.pressed || b.value > 0.5));
-      });
+      const now = SDL_TO_STANDARD.map((std) => padPressed(g, std));
       now.forEach((v, sdl) => {
         if (v && !prev[sdl]) downs.push(sdl);
       });
@@ -3977,10 +4052,7 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
   }
   function padButtonHeld(sdl) {
     const std = SDL_TO_STANDARD[sdl];
-    return gamepads().some((g) => {
-      const b = g.buttons[std];
-      return !!(b && (b.pressed || b.value > 0.5));
-    });
+    return gamepads().some((g) => padPressed(g, std));
   }
   var OST_BY_DIR = {
     TRAINING: "04. Your Basic D.I.D..mp3",
@@ -35269,14 +35341,15 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
     c.key[8] = 22;
     c.keys_on = 1;
   }
+  var PAD_LAYOUT_VERSION = 3;
   function input_reset_pad(c) {
-    c.pad[0] = 2;
+    c.pad[0] = 16;
     c.pad[1] = 0;
     c.pad[2] = 1;
-    c.pad[3] = 3;
-    c.pad[4] = 9;
+    c.pad[3] = 2;
+    c.pad[4] = 10;
     c.pad[5] = 6;
-    c.pad[6] = 4;
+    c.pad[6] = 9;
   }
   function input_defaults(c) {
     szero(InputConfig_zero, c, 1);
@@ -35295,6 +35368,7 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
     input_defaults(c);
     const f = fopen("controls.cfg", "r");
     if (f == null) return -1;
+    let padVersion = 0;
     let line;
     while ((line = fgets(256, f)) != null) {
       const m = /^\s*([^=]{1,63}?)\s*=\s*([^\n]{1,127})/.exec(line);
@@ -35306,6 +35380,7 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
       for (let i = 0; i < 7; i++) {
         if (name === "pad." + PADACT_NAMES[i]) c.pad[i] = val === "none" ? -1 : SDL_GameControllerGetButtonFromString(val);
       }
+      if (name === "pad_version") padVersion = atoi(val);
       if (name === "keys_on") c.keys_on = atoi(val);
       else if (name === "sfx") c.sfx_on = atoi(val);
       else if (name === "music") c.music_on = atoi(val);
@@ -35314,7 +35389,11 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
       else if (name === "lives") c.lives = atoi(val);
     }
     fclose(f);
-    if (c.pad[6] === c.pad[1]) c.pad[6] = 4;
+    if (c.pad[6] === c.pad[1] || c.pad[6] === 4) c.pad[6] = 9;
+    if (padVersion < PAD_LAYOUT_VERSION) input_reset_pad(c);
+    if (c.pad[2] !== -1 && c.pad[2] === c.pad[3]) {
+      input_reset_pad(c);
+    }
     return 0;
   }
   function input_save(c) {
@@ -35334,31 +35413,48 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
       let n = c.pad[i] === -1 ? "none" : SDL_GameControllerGetStringForButton(c.pad[i]);
       fprintf(f, "pad.%s = %s\n", PADACT_NAMES[i], n != null ? n : "none");
     }
+    fprintf(f, "pad_version = %d\n", PAD_LAYOUT_VERSION);
     fprintf(f, "keys_on = %d\nsfx = %d\nmusic = %d\nvolume = %d\ndifficulty = %d\nlives = %d\n", c.keys_on, c.sfx_on, c.music_on, c.volume, c.difficulty, c.lives);
     fclose(f);
     return 0;
   }
   function padbtn(pad2, b) {
-    return +(pad2 != null && b !== -1 && SDL_GameControllerGetButton(pad2, b));
+    return +(b !== -1 && SDL_GameControllerGetButton(pad2, b));
   }
   function pad_dirs(pad2) {
     let d = 0;
-    if (!(pad2 != null)) {
-      return 0;
-    }
-    let ax = SDL_GameControllerGetAxis(pad2, 0);
-    let ay = SDL_GameControllerGetAxis(pad2, 1);
-    if (ax < -12e3 || SDL_GameControllerGetButton(pad2, 13)) {
+    let lx = SDL_GameControllerGetAxis(pad2, 0);
+    let ly = SDL_GameControllerGetAxis(pad2, 1);
+    let rx = SDL_GameControllerGetAxis(pad2, 2);
+    let ry = SDL_GameControllerGetAxis(pad2, 3);
+    if (lx < -8e3 || SDL_GameControllerGetButton(pad2, 13)) {
       d = d | 1;
     }
-    if (ax > 12e3 || SDL_GameControllerGetButton(pad2, 14)) {
+    if (lx > 8e3 || SDL_GameControllerGetButton(pad2, 14)) {
       d = d | 2;
     }
-    if (ay < -12e3 || SDL_GameControllerGetButton(pad2, 11)) {
+    if (ly < -8e3 || SDL_GameControllerGetButton(pad2, 11)) {
       d = d | 4;
     }
-    if (ay > 12e3 || SDL_GameControllerGetButton(pad2, 12)) {
+    if (ly > 8e3 || SDL_GameControllerGetButton(pad2, 12)) {
       d = d | 8;
+    }
+    if (rx < -8e3) {
+      d = d | 1;
+    }
+    if (rx > 8e3) {
+      d = d | 2;
+    }
+    if (ry < -8e3) {
+      d = d | 4;
+    }
+    if (ry > 8e3) {
+      d = d | 8;
+    }
+    let alx = lx < 0 ? -lx | 0 : lx;
+    let arx = rx < 0 ? -rx | 0 : rx;
+    if (ly < -8e3 && alx < (Math.imul(-ly | 0, 7) / 10 | 0) || ry < -8e3 && arx < (Math.imul(-ry | 0, 7) / 10 | 0)) {
+      d = d & ~(1 | 2) | 4;
     }
     return d;
   }
@@ -35391,8 +35487,8 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
         in_ = in_ | raw_game_bits__pbit[i];
       }
     }
-    if (padbtn(pad2, 10)) {
-      in_ = in_ | 256;
+    if (padbtn(pad2, 16)) {
+      in_ = in_ | 64;
     }
     return in_;
   }
@@ -35491,7 +35587,7 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
     if (button === -1 || button === c.pad[5]) {
       return 0;
     }
-    return +(c.pad[6] !== 4 && button === c.pad[6] || button === c.pad[1] || button === c.pad[0] || button === c.pad[2]);
+    return +(button === c.pad[1] || button === 0 || c.pad[6] !== 4 && button === c.pad[6]);
   }
   function level_cell__leftovers(L, strip, col, row) {
     if (strip < 0 || strip >= L.nstrips || col < 0 || col >= L.ncols || row < 0 || row >= L.nrows) {
@@ -52401,7 +52497,7 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
     } else if (F.mode === 6) {
       if (input_pause_ok(cfg, button)) {
         bm_key_down(40, 13);
-      } else if (button === 4) {
+      } else if (button === 4 || button === 1) {
         bm_key_down(41, 27);
       }
     }
@@ -52937,6 +53033,9 @@ registerProcessor("hercules-mixer", HerculesMixer);`;
     let tick = 1 / 30;
     if (!running) {
       return 0;
+    }
+    if (!(pad != null) && SDL_NumJoysticks() > 0 && SDL_IsGameController(0)) {
+      pad = SDL_GameControllerOpen(0);
     }
     sfx_set_options(cfg.sfx_on, cfg.music_on, cfg.volume);
     pause_pad_dirs();
@@ -55656,6 +55755,20 @@ void main()
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         if (hadController) onUpdate?.();
       });
+      let lastCheck = Date.now();
+      const check = () => {
+        if (navigator.onLine === false || Date.now() - lastCheck < 6e4) return;
+        lastCheck = Date.now();
+        reg.update().catch(() => {
+        });
+      };
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") check();
+      });
+      window.addEventListener("online", check);
+      setInterval(() => {
+        if (document.visibilityState === "visible") check();
+      }, 18e5);
       if (reg.waiting && hadController) {
         onUpdate?.();
       }
@@ -55682,12 +55795,25 @@ void main()
       ...GAME_MUSIC_TRACKS.map((t) => ({ urls: [musicUrl("MUSIC/", t.file)], name: t.file }))
     ];
     const known = JSON.parse(localStorage.getItem(DONE_KEY) || "{}");
+    if (known.complete) {
+      let allReq = true;
+      for (const f of REQUIRED) {
+        if (!await has(`DATA/${f}`) && !await has(`DATA/${f.toLowerCase()}`)) {
+          allReq = false;
+          break;
+        }
+      }
+      if (allReq) {
+        return { complete: true, alreadyCached: true, missing: known.missing || [], bytes: 0 };
+      }
+    }
     const knownMissing = new Set(known.missing || []);
     const missing = [];
     let done = 0, bytes = 0;
     const total = items.length;
     for (const item of items) {
       let ok = false;
+      let fetched = false;
       for (const u of item.urls) if (await has(u)) {
         ok = true;
         break;
@@ -55699,6 +55825,7 @@ void main()
             if (!res.ok) continue;
             const buf = await res.arrayBuffer();
             bytes += buf.byteLength;
+            fetched = true;
             if (!await has(u)) {
               await cache.put(
                 new URL(u, location.href).href,
@@ -55714,7 +55841,7 @@ void main()
       if (!ok) missing.push(item.name);
       done++;
       onProgress?.({ done, total, bytes, file: item.name });
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      if (fetched) await new Promise((resolve) => setTimeout(resolve, 30));
     }
     const complete = navigator.onLine !== false;
     if (complete) localStorage.setItem(DONE_KEY, JSON.stringify({ complete: true, missing, at: Date.now() }));
@@ -56472,7 +56599,7 @@ void main()
     { label: "LIVES", y: 80 },
     { label: "MUSIC", y: 114 },
     { label: "SOUND", y: 148 },
-    { label: "INPUT", y: 182 }
+    { label: "CONTROLS", y: 182 }
   ];
   function decode2(s) {
     const bin = atob(s.d), px = new Uint32Array(s.w * s.h);
@@ -56897,6 +57024,10 @@ void main()
       this.cTab = 0;
       this.cRow = 0;
       this.rebindWaiting = false;
+      this.rebindLatch = false;
+      this.rebindReleaseNeeded = false;
+      this.prevPadA = false;
+      this.prevPadB = false;
       this.vsel = "START";
       this.wantSel = "";
       this.mode = "";
@@ -56925,6 +57056,20 @@ void main()
       const F2 = this.F;
       return F2.mode === FE_MENU && F2.ms === 2 && F2.a07c === 2;
     }
+    /** Tabs of the CONTROLS screen: 0 keyboard, 1 controller. A phone has no keyboard to set up; a desktop shows the
+     *  controller tab only while a controller is connected. */
+    ctrlTabs() {
+      if (this.touch) return [1];
+      return this.hasGamepad() ? [0, 1] : [0];
+    }
+    ctrlFlip() {
+      if (this.ctrlTabs().length < 2) return;
+      this.cTab ^= 1;
+      this.cRow = 0;
+      this.cCol = 0;
+      this.snd(769);
+      this.redraw();
+    }
     hasGamepad() {
       try {
         if (typeof navigator !== "undefined" && navigator.getGamepads) {
@@ -56942,6 +57087,7 @@ void main()
     }
     optRows() {
       if (this.inGame() || this.F.mode === FE_PROPS2 && this.F.props_return !== FE_MENU) {
+        if (this.hasGamepad()) return [2, 3, 4];
         return [2, 3];
       }
       if (this.touch && !this.hasGamepad()) {
@@ -57192,7 +57338,7 @@ void main()
           if (!active.includes(i)) return;
           const isSel = i === sel;
           const dim = i < 2 && isGame ? off : 1;
-          const yPos = isGame ? i === 2 ? 84 : 124 : r.y;
+          const yPos = isGame ? active.includes(4) ? i === 2 ? 72 : i === 3 ? 112 : 152 : i === 2 ? 84 : 124 : r.y;
           drawRetroText(px, X_LEFT, yPos + 2, r.label, isSel, true, dim);
           if (i === 0) {
             const valText = ["BEGINNER", "MEDIUM", "HERCULEAN"][v.diff] || "MEDIUM";
@@ -57212,6 +57358,9 @@ void main()
               blit2(px, 320, 240, STRIPS[s < n ? "SEG_on" : "SEG_off"], x0 + mnW + 6 + s * seg, yPos + 3);
             }
             drawRetroText(px, x0 + mnW + 6 + bw + 6, yPos + 2, mx, isSel, true, dim);
+          } else if (i === 4) {
+            const valText = ">";
+            drawRetroText(px, X_RIGHT - retroTextW(valText), yPos + 2, valText, isSel, true, dim);
           }
         });
         if (isGame) {
@@ -57223,15 +57372,28 @@ void main()
     }
     ctrlImage() {
       const c = this.E.bm_config();
-      const sig = `${this.cTab}|${this.cRow}|${this.rebindWaiting ? 1 : 0}|${c.key.join(",")}|${c.pad.join(",")}`;
+      const tabs = this.ctrlTabs();
+      if (!tabs.includes(this.cTab)) {
+        this.cTab = tabs[0];
+        this.cRow = 0;
+        this.cCol = 0;
+        this.rebindWaiting = false;
+      }
+      const blink = this.rebindWaiting ? Math.floor(Date.now() / 250) % 2 : 0;
+      const sig = `${tabs.join("")}|${this.cTab}|${this.cRow}|${this.rebindWaiting ? blink ? 1 : 2 : 0}|${c.key.join(",")}|${c.pad.join(",")}`;
       return this.img(`ctrl_${sig}`, () => {
         const px = new Uint32Array(320 * 240);
         centre(px, STRIPS.C_CTRL_g, 16);
         drawCloseButton(px);
         const tab0Active = this.cTab === 0, tab1Active = this.cTab === 1;
         const t02 = "KEYBOARD", t1 = "GAMEPAD";
-        drawRetroText(px, 79 - (retroTextW(t02) >> 1), 42, t02, tab0Active);
-        drawRetroText(px, 241 - (retroTextW(t1) >> 1), 42, t1, tab1Active);
+        if (tabs.length > 1) {
+          drawRetroText(px, 79 - (retroTextW(t02) >> 1), 42, t02, tab0Active);
+          drawRetroText(px, 241 - (retroTextW(t1) >> 1), 42, t1, tab1Active);
+        } else {
+          const t = this.cTab === 0 ? t02 : t1;
+          drawRetroText(px, 160 - (retroTextW(t) >> 1), 42, t, true);
+        }
         const rows = this.cTab === 0 ? KEY_ROWS : PAD_ROWS;
         if (this.cTab === 1) {
           const startY = 64, pitch = 18;
@@ -57244,12 +57406,12 @@ void main()
               drawRetroText(px, 48, y, r.label, isSel);
               let valText = "";
               if (isSel && this.rebindWaiting) {
-                valText = "PRESS BUTTON...";
+                valText = blink ? "???" : "   ";
               } else {
                 const btn = c.pad[r.act];
                 valText = PAD_BUTTON_NAMES[btn] || (btn === -1 ? "NONE" : `BTN ${btn}`);
               }
-              const valX = isSel && this.rebindWaiting ? 272 - retroTextW(valText) : 224;
+              const valX = 224;
               drawRetroText(px, valX, y, valText, isSel);
             }
           });
@@ -57270,7 +57432,7 @@ void main()
               drawRetroText(px, xLabel, y, r.label, isSel);
               let valText = "";
               if (isSel && this.rebindWaiting) {
-                valText = "PRESS KEY...";
+                valText = blink ? "???" : "   ";
               } else {
                 const sc = c.key[r.act];
                 valText = sc === 0 ? "NONE" : (this.platform.SDL_GetScancodeName(sc) || `#${sc}`).toUpperCase();
@@ -57406,6 +57568,21 @@ void main()
       this.prevTick = F2.tick;
       const pr = F2.pressed | F2.held & ~this.prevHeld, held2 = F2.held;
       this.prevHeld = held2;
+      const pads = globalThis.navigator?.getGamepads ? Array.from(globalThis.navigator.getGamepads()).filter(Boolean) : [];
+      const pad0 = pads[0];
+      const padA = !!pad0 && padPressed(pad0, 0);
+      const padB = !!pad0 && padPressed(pad0, 1);
+      const padAEdge = padA && !this.prevPadA;
+      const padBEdge = padB && !this.prevPadB;
+      this.prevPadA = padA;
+      this.prevPadB = padB;
+      if (this.rebindLatch) {
+        const anyPadPressed = pads.some((g) => g.buttons.some((b) => b && (b.pressed || b.value > 0.2)));
+        if (anyPadPressed) {
+          return;
+        }
+        this.rebindLatch = false;
+      }
       if (this.justReturnedToMenu) {
         this.justReturnedToMenu = false;
         return;
@@ -57460,18 +57637,31 @@ void main()
       } else if (this.screen === "ctrl") {
         const c = this.E.bm_config();
         if (this.rebindWaiting) {
+          this.redraw();
           if (this.cTab === 1) {
-            const pads = globalThis.navigator?.getGamepads ? Array.from(globalThis.navigator.getGamepads()).filter(Boolean) : [];
-            if (pads.length > 0) {
-              const g = pads[0];
-              for (let b = 0; b < g.buttons.length; b++) {
-                if (g.buttons[b] && (g.buttons[b].pressed || g.buttons[b].value > 0.5)) {
+            if (pad0) {
+              const anyPressed = pad0.buttons.some((b) => b && (b.pressed || b.value > 0.5));
+              if (this.rebindReleaseNeeded) {
+                if (!anyPressed) {
+                  this.rebindReleaseNeeded = false;
+                }
+                return;
+              }
+              for (let b = 0; b < pad0.buttons.length; b++) {
+                if (pad0.buttons[b] && (pad0.buttons[b].pressed || pad0.buttons[b].value > 0.5)) {
                   const sdlBtn = STANDARD_TO_SDL[b];
                   if (sdlBtn !== void 0) {
                     const r = PAD_ROWS[this.cRow];
                     if (r && r.act !== void 0) {
+                      for (let i = 0; i < c.pad.length; i++) {
+                        if (i !== r.act && c.pad[i] === sdlBtn) {
+                          c.pad[i] = c.pad[r.act];
+                        }
+                      }
                       c.pad[r.act] = sdlBtn;
                       this.rebindWaiting = false;
+                      this.rebindReleaseNeeded = false;
+                      this.rebindLatch = true;
                       this.E.input_save(c);
                       this.snd(770);
                       this.redraw();
@@ -57495,11 +57685,7 @@ void main()
             this.snd(up ? 769 : 768);
             this.redraw();
           } else if (left || right) {
-            this.cTab = 0;
-            this.cRow = 0;
-            this.cCol = 0;
-            this.snd(769);
-            this.redraw();
+            this.ctrlFlip();
           }
         } else {
           const split = 5;
@@ -57525,11 +57711,7 @@ void main()
             }
           } else if (left || right) {
             if (this.cRow === resetIdx) {
-              this.cTab ^= 1;
-              this.cRow = 0;
-              this.cCol = 0;
-              this.snd(769);
-              this.redraw();
+              this.ctrlFlip();
             } else if (right) {
               if (this.cRow < split) {
                 this.cCol = 1;
@@ -57539,11 +57721,7 @@ void main()
                 this.snd(768);
                 this.redraw();
               } else {
-                this.cTab ^= 1;
-                this.cRow = 0;
-                this.cCol = 0;
-                this.snd(769);
-                this.redraw();
+                this.ctrlFlip();
               }
             } else if (left) {
               if (this.cRow >= split) {
@@ -57553,16 +57731,14 @@ void main()
                 this.snd(769);
                 this.redraw();
               } else {
-                this.cTab ^= 1;
-                this.cRow = 0;
-                this.cCol = 0;
-                this.snd(769);
-                this.redraw();
+                this.ctrlFlip();
               }
             }
           }
         }
-        if (ok) {
+        const ctrlOk = this.cTab === 1 ? pad0 ? padAEdge : ok : ok;
+        const ctrlBack = this.cTab === 1 ? pad0 ? padBEdge : back : back;
+        if (ctrlOk) {
           const r = rows[this.cRow];
           if (r.reset) {
             if (this.cTab === 0) this.E.input_reset_keys(c);
@@ -57572,10 +57748,11 @@ void main()
             this.redraw();
           } else if (r.act !== void 0) {
             this.rebindWaiting = true;
+            this.rebindReleaseNeeded = this.cTab === 1;
             this.snd(770);
             this.redraw();
           }
-        } else if (back) {
+        } else if (ctrlBack) {
           this.back();
         }
       }
@@ -57608,6 +57785,8 @@ void main()
       if (F2.mode === FE_MENU) {
         F2.a030 = s ? WALK : ENG[this.vsel] ?? WALK;
         this.redraw();
+      } else if (this.inGame()) {
+        this.redraw();
       }
       this.onChange();
     }
@@ -57632,8 +57811,14 @@ void main()
       }
       if (this.screen === "ctrl") {
         this.rebindWaiting = false;
+        this.rebindLatch = false;
+        this.rebindReleaseNeeded = false;
         this.snd(771);
         this.setScreen("opts");
+        if (this.inGame()) {
+          this.F.povl = this.optsImage(this.osel);
+          this.redraw();
+        }
         return;
       }
       if (this.screen === "load") {
@@ -57792,7 +57977,8 @@ void main()
       }
       if (r === 4) {
         this.snd(770);
-        this.cTab = this.hasGamepad() ? 1 : 0;
+        const tabs = this.ctrlTabs();
+        this.cTab = tabs.includes(1) && this.hasGamepad() ? 1 : tabs[0];
         this.cRow = 0;
         this.cCol = 0;
         this.rebindWaiting = false;
@@ -57849,6 +58035,7 @@ void main()
         if (ev.code === "Escape" || ev.code === "Backspace" || ev.code === "BrowserBack" || ev.key === "GoBack") {
           if (this.screen === "ctrl" && this.rebindWaiting) {
             this.rebindWaiting = false;
+            this.rebindReleaseNeeded = false;
             this.snd(771);
             this.redraw();
             return true;
@@ -57878,7 +58065,14 @@ void main()
             const sc = this.platform.scancodeFromEvent(ev);
             if (sc > 0) {
               const r = KEY_ROWS[this.cRow];
-              if (r && r.act !== void 0) c.key[r.act] = sc;
+              if (r && r.act !== void 0) {
+                for (let i = 0; i < c.key.length; i++) {
+                  if (i !== r.act && c.key[i] === sc) {
+                    c.key[i] = c.key[r.act];
+                  }
+                }
+                c.key[r.act] = sc;
+              }
               this.rebindWaiting = false;
               this.E.input_save(c);
               this.snd(770);
@@ -57888,14 +58082,14 @@ void main()
           }
           return true;
         }
-        if (ev.code === "Digit1") {
+        if (ev.code === "Digit1" && this.ctrlTabs().includes(0)) {
           this.cTab = 0;
           this.cRow = 0;
           this.snd(769);
           this.redraw();
           return true;
         }
-        if (ev.code === "Digit2") {
+        if (ev.code === "Digit2" && this.ctrlTabs().includes(1)) {
           this.cTab = 1;
           this.cRow = 0;
           this.snd(769);
@@ -57952,7 +58146,7 @@ void main()
         const isGame = this.inGame(), active = this.optRows();
         OPT_ROWS.forEach((row, i) => {
           if (!active.includes(i)) return;
-          const yPos = isGame ? i === 2 ? 84 : 124 : row.y;
+          const yPos = isGame ? active.includes(4) ? i === 2 ? 72 : i === 3 ? 112 : 152 : i === 2 ? 84 : 124 : row.y;
           if (y >= yPos - 4 && y < yPos + 22) r = i;
         });
         if (r >= 0 && active.includes(r) && r !== this.osel) {
@@ -58157,7 +58351,7 @@ void main()
         const c = this.E.bm_config();
         if (y >= 30 && y < 58) {
           const newTab = x < 160 ? 0 : 1;
-          if (newTab !== this.cTab) {
+          if (newTab !== this.cTab && this.ctrlTabs().includes(newTab)) {
             this.cTab = newTab;
             this.cRow = 0;
             this.cCol = 0;
@@ -58223,7 +58417,7 @@ void main()
         const isGame = this.inGame(), active = this.optRows();
         OPT_ROWS.forEach((row, i) => {
           if (!active.includes(i)) return;
-          const yPos = isGame ? i === 2 ? 84 : 124 : row.y;
+          const yPos = isGame ? active.includes(4) ? i === 2 ? 72 : i === 3 ? 112 : 152 : i === 2 ? 84 : 124 : row.y;
           if (y >= yPos - 4 && y < yPos + 22) {
             r = i;
             if (x >= 140) val = true;
@@ -59452,7 +59646,7 @@ build ${s.build || "?"}`;
   var MOBILE = urlParams.get("touch") === "1" || urlParams.get("touch") !== "0" && (!!globalThis.matchMedia?.("(pointer: coarse)").matches || !!globalThis.matchMedia?.("(display-mode: standalone)").matches || !!globalThis.matchMedia?.("(display-mode: fullscreen)").matches || "ontouchstart" in globalThis || navigator.maxTouchPoints > 0);
   var DESKTOP = !MOBILE;
   if (DESKTOP) document.documentElement.classList.add("desktop");
-  var BUILD = "1.0.0";
+  var BUILD = "1.0.1";
   var FE_PLAY2 = 5;
   var FE_PROPS3 = 4;
   var touch = null;
@@ -59530,6 +59724,7 @@ build ${s.build || "?"}`;
   }
   setPauseDrawHook((fb, st) => wt.drawPauseMenu(fb, st));
   setOpenSettingsHook(() => wt.openInGame());
+  var touchHidden = true;
   var softKeys = /* @__PURE__ */ new Map();
   function releaseSoftKeys(ticked) {
     for (const [sc, k] of softKeys) {
@@ -59589,8 +59784,8 @@ build ${s.build || "?"}`;
       screenWrap.appendChild(fpsBox);
       fpsBox.classList.add("m-perf");
     }
-    $("#touch-left").hidden = false;
-    $("#touch-right").hidden = false;
+    $("#touch-left").hidden = true;
+    $("#touch-right").hidden = true;
     touch = new TouchControls($("#touch-left"), $("#touch-right"), {
       onGesture: () => {
         if (audioBlocked()) unlockAudio();
@@ -59630,24 +59825,6 @@ build ${s.build || "?"}`;
             } }))) sendKey("Enter");
           } else {
             guard(() => {
-              const P2 = G?.P_;
-              if (P2 && P2.ammo && P2.weapon === 0) {
-                const lvl = typeof bm_level === "function" ? bm_level() : 1;
-                let best = 0;
-                if (P2.health <= (P2.max_health || 100) >> 2 && P2.ammo[4] > 0) best = 4;
-                else if (lvl === 9) best = P2.ammo[1] > 0 ? 1 : P2.ammo[2] > 0 ? 2 : 0;
-                else if (lvl === 7 && P2.ammo[2] >= 12) best = 2;
-                else if (P2.ammo[2] >= 12) best = 2;
-                else if (P2.ammo[1] > 0) best = 1;
-                else if (P2.ammo[3] > 0) best = 3;
-                else if (P2.ammo[4] > 0) best = 4;
-                if (best > 0) {
-                  P2.weapon = best;
-                  P2.wpn_snd = best === 4 ? 20 : 0;
-                  if (typeof sfx_play === "function") sfx_play(39, 0, null);
-                  return;
-                }
-              }
               bm_touch(256, 1);
               setTimeout(() => bm_touch(256, 0), 120);
             });
@@ -59800,6 +59977,10 @@ build ${s.build || "?"}`;
     setPadMode(true);
   }
   window.addEventListener("gamepadconnected", () => controllerSeen());
+  window.addEventListener("hercules-turbo", (ev) => {
+    const b = ev.detail;
+    showToast(`Turbo (auto-fire) is on for ${b} on your controller — held moves will not work right. Turn it off on the controller (GameSir: hold M and press ${b}).`, 7e3);
+  });
   window.addEventListener("gamepaddisconnected", (ev) => {
     if (state === "running") guard(() => bm_pad_removed(ev.gamepad.index));
     if (padCount() === 0) {
@@ -60163,6 +60344,10 @@ Full log:
     lastTime = now;
     const t02 = performance.now();
     const alive = guard(() => {
+      if (padCount() > 0) {
+        if (!padSeen) controllerSeen();
+        guard(() => bm_pad_added(0));
+      }
       const downs = pollPadButtonDowns();
       if (downs.length && !padMode && MOBILE) controllerSeen();
       if (downs.length) settingsPanel.noteInput();
@@ -60171,9 +60356,6 @@ Full log:
         if (downs.includes(1) || downs.includes(6) || downs.includes(4)) wt.stop();
         r = wt.active ? wt.frame(elapsed, heldCodes) : bm_frame(elapsed);
       } else {
-        if (wt.open && (downs.includes(1) || downs.includes(3) || downs.includes(4) || downs.includes(6) || downs.includes(8))) {
-          guard(() => wt.back());
-        }
         for (const b of downs) bm_pad_button(b);
         if (pendingWalk && wt.menuReady()) {
           const n = pendingWalk;
@@ -60188,6 +60370,14 @@ Full log:
       pumpAudio();
       if (touch) {
         const mode = bm_mode();
+        const hideTouch = mode === 0;
+        if (touchHidden !== hideTouch) {
+          touchHidden = hideTouch;
+          $("#touch-left").hidden = hideTouch;
+          $("#touch-right").hidden = hideTouch;
+          if (hideTouch) touch.releaseAll();
+          else touch.layout();
+        }
         const isMenu = mode !== FE_PLAY2 || wt.open;
         touch.setMode(isMenu ? "menu" : "game");
         if (isMenu) {
@@ -60360,9 +60550,19 @@ Full log:
     if (extra) lines.push(extra);
     drawMessage(lines);
   }
+  var updatePending = false;
+  function updateSafePoint() {
+    return state !== "running" || bm_mode() === 1 && !wt.open && !(wt.active && wt.mode !== "tally");
+  }
   registerServiceWorker({ onUpdate: () => {
-    if (state !== "running") location.reload();
+    if (updatePending) return;
+    updatePending = true;
+    if (updateSafePoint()) location.reload();
+    else showToast("A new version is downloaded \u2014 it starts the next time you are in the main menu.", 4e3);
   } });
+  setInterval(() => {
+    if (updatePending && updateSafePoint()) location.reload();
+  }, 1e3);
   var offlineNote = "";
   async function saveOffline() {
     if (!pwaSupported()) return;
@@ -60375,6 +60575,10 @@ Full log:
           if (musicStatus) musicStatus.textContent = offlineNote;
         }
       });
+      if (r.alreadyCached) {
+        if (musicStatus) musicStatus.textContent = "Ready to play offline.";
+        return;
+      }
       offlineNote = r.complete ? "Ready to play offline." : "Offline copy incomplete (no connection) \u2014 it continues next time.";
       const miss = (r.missing || []).filter((n) => !/^\d+\.etv$/i.test(n));
       if (musicStatus) musicStatus.textContent = offlineNote + (miss.length ? ` Not on the server: ${miss.length > 3 ? miss.length + " files (e.g. " + miss.slice(0, 2).join(", ") + ")" : miss.join(", ")}.` : "");
@@ -60387,11 +60591,11 @@ Full log:
   async function load() {
     drawMessage(["Disney's Hercules", "Loading game data from DATA/\u2026"]);
     try {
-      for (const name of REQUIRED2) {
-        setStatus(`Reading ${DATA}${name}\u2026`);
-        drawMessage(["Disney's Hercules", `Loading ${name}\u2026`]);
-        files.set(name, await readFromFolder(DATA, name));
-      }
+      setStatus(`Loading game files\u2026`);
+      await Promise.all(REQUIRED2.map(async (name) => {
+        const data = await readFromFolder(DATA, name);
+        files.set(name, data);
+      }));
     } catch (error) {
       state = "error";
       if (error instanceof AssetAccessError && isFileProtocol() && accessHelp) accessHelp.hidden = false;
