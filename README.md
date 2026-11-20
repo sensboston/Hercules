@@ -166,10 +166,14 @@ Bindings can be customized in Options › Controls.
 
 Buttons can be remapped in Options › Controls. On phones and tablets that screen shows only the controller; on a desktop it shows the keyboard, plus the controller while one is connected.
 
-### Controller Turbo (auto-fire)
-Many controllers have a Turbo function (GameSir: the **M** button, 8BitDo and others: **Turbo** / **Star**). With Turbo on, a held button is sent as a fast stream of presses, so moves that rely on holding a button break: the Power Punch strikes at once without charging, and a Gift weapon fired with the sword cannot be swept and always points straight ahead.
+### Known issue: controller Turbo (seen on GameSir Nova Lite)
+This was found while testing with a **GameSir Nova Lite**: Turbo (auto-fire) was switched on for **B** and **RT**, and it is easy to switch on by accident with the **M** button. Most controllers ship with Turbo off, so you may never see this; it only matters if Turbo is on for a button the game expects you to hold.
 
-The game detects Turbo on a button, keeps the button held anyway and shows a hint. It is still best to turn Turbo off on the controller. On a GameSir Nova Lite: hold **M** and press the button (for example **RT** or **B**), then release both. Repeat if the first press only switched the Turbo mode.
+With Turbo on, a held button reaches the game as a fast stream of presses, so moves that rely on holding break:
+- the Power Punch strikes at once instead of charging;
+- a Gift weapon fired with the sword cannot be swept with the stick and always points straight ahead.
+
+The game detects this pattern, keeps the button held anyway and shows a one-time hint, but the clean fix is to turn Turbo off on the controller. On the Nova Lite: hold **M**, press the affected button (for example **RT** or **B**), release both, then check that holding the button alone works; repeat if the first press only switched the Turbo mode. Other brands use a **Turbo** or **Star** button for the same function.
 
 ### Touch Controls
 On touchscreen devices, on-screen virtual controls activate automatically with responsive directional input and action buttons.
