@@ -59630,7 +59630,6 @@ build ${s.build || "?"}`;
     canvas.focus();
   }
   fullscreenButton?.addEventListener("click", toggleFullscreen);
-  canvas.addEventListener("dblclick", toggleFullscreen);
   document.addEventListener("fullscreenchange", () => setTimeout(() => {
     display.resize();
     present2();
