@@ -7,7 +7,7 @@
  *   are fetched (the page also pre-fetches all of them) and then always served from the cache "hercules-data-v1",
  *   which is kept across versions - an update never downloads the game data again.
  * - Range requests (the <audio> element asks for byte ranges of the MP3s) are answered from the cached file. */
-const VERSION = "1.0.0";
+const VERSION = "1.0.7";
 const SHELL_CACHE = "hercules-shell-" + VERSION; // versioned shell cache ensures clean atomic updates
 const DATA_CACHE = "hercules-data-v1";
 const SHELL_TIMEOUT = 4000;
